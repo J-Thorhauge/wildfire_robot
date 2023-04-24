@@ -190,18 +190,18 @@
 
     <!-- AR MOUNT -->
 
-    <!-- <joint name="ar_mount_joint" type="fixed">
+    <joint name="ar_mount_joint" type="fixed">
         <parent link="base_link"/>
         <child link="ar_mount"/>
-        <origin xyz="${chassis_height-0.01} 0 ${chassis_length/2}"/>
+        <origin xyz="${chassis_height} 0 ${chassis_length/2}"/>
     </joint>
 
-
+    <!-- <uri>model://description/meshes/AR-tag_top.stl</uri> -->
     <link name="ar_mount">
         <visual>
             <geometry>
                 <mesh>
-                    <uri>model://meshes/AR-tag_mount_v2.STL</uri>
+                    <uri>model://description/meshes/AR-tag_top.dae</uri>
                 </mesh>
             </geometry>
             <material name="black"/>
@@ -210,6 +210,6 @@
 
     <gazebo reference="ar_mount">
         <material>Gazebo/Black</material>
-    </gazebo> -->
+    </gazebo>
 
 </robot>
