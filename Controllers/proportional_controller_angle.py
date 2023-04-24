@@ -258,7 +258,7 @@ class MRController:
 
         return [[0.1,0,0], [0,0,turn_pid]], nearest_point[0] # Return twist msg components
         
-    # Runs every set interval
+    # Runs every set interval and sends twist message
     def on_tmr(self):
         # Create twist message from the latest linear and angular
         twist = Twist(
