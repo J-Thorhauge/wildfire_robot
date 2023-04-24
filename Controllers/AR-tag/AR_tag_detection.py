@@ -366,7 +366,7 @@ while True:
 
     success, frame = cap.read() # Captures the image from the camera
 
-    img = cv2.resize(frame, (0, 0), fx=0.5, fy=0.5) # Resize the morshu image
+    img = cv2.resize(frame, (0, 0), fx=0.5, fy=0.5) # Resize the camera image
 
     image_process(img, p1) # Function that does all of the IP
     
