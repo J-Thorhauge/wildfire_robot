@@ -566,7 +566,7 @@ class MRController:
             angular=Vector3(
                 x=float(self.current_angular[0]),
                 y=float(self.current_angular[1]),
-                z=-float(self.current_angular[2]),
+                z=float(self.current_angular[2]),
             )
         )
         # Publish the twist message 
