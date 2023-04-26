@@ -13,16 +13,24 @@ import math
 import time
 import copy
 
-ar_size = 36 #36 is good
-ar_tag = cv2.imread("Controllers/AR-tag/AR_tag_border.png")
-ar_tag = cv2.resize(ar_tag, (ar_size,ar_size), interpolation = cv2.INTER_AREA)
+# ar_size = 36 #36 is good
+# ar_tag = cv2.imread("Controllers/AR-tag/AR_tag_border.png")
+# ar_tag = cv2.resize(ar_tag, (ar_size,ar_size), interpolation = cv2.INTER_AREA)
 
 test_list = ['F', 'L', 'R', 'B'] # List of commands for testing
-capture_shape = [720,1280] # Dimensions of the capture, it should have been width, then height, but I can't be bothered to go through an change it
+capture_shape = [480,640] # Dimensions of the capture, it should have been width, then height, but I can't be bothered to go through an change it
 
 forward_margin = 0.3 # This decides how close the robot should be to the object when driving forward
 side_margin = 0.425 # This decides how much the object may deviate from the center, before the robot turns
 
+search_vel_pid = [0.001,0,0]
+search_vel_lim = [-0.2,0.2]
+
+search_ang_pid = [0.01,0,0]
+search_ang_lim = [-1,1]
+
+circle_ang_pid = [0.05,0,0]
+circle_ang_lim = [-1,1]
 
 # Class for publishing twist messages to the cmd_vel topic, based on the camera feed
 # The twist messages are picked up by the differential controller and translated to the robot
@@ -37,6 +45,8 @@ class MRController:
         # self.br = CvBridge() # Create bridge that converts ros image messages to opencv images
         # self.current_image = np.zeros(capture_shape) # Initiate the image variable
         self.cap = cv2.VideoCapture(0)
+        self.cap.set(cv2.CAP_PROP_FRAME_WIDTH,640)
+        self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT,480)
 
         publish_period_sec = 0.1 # How often does the publisher publish 
         self.tmr_twist = self.node.create_timer(publish_period_sec, self.on_tmr) # Creates timer that activates with a set interval
@@ -68,50 +78,53 @@ class MRController:
         # Reset the linear and angular commands
         self.current_linear = [0, 0, 0]
         self.current_angular = [0, 0, 0]
+        try:
+            self.robot_loc, self.robot_forw = self.ar_detection(self.img_bgr)
+            # print(self.ar_detection(self.img_bgr))
+            print(self.state)
+            # State machine if-chain
+            if self.state == "search": # "search" represents searching for and moving to the fire
 
-        self.robot_loc, self.robot_forw = self.ar_detection(self.img_bgr)
-        # print(self.ar_detection(self.img_bgr))
+                movement, self.object_loc = self.basicFireDetection(self.img_bgr) # Run fire detection and P control
 
-        # State machine if-chain
-        if self.state == "search": # "search" represents searching for and moving to the fire
+                # Draws the line from the robot to the object
+                cv2.line(self.img_bgr, [int(self.object_loc[0]), int(self.object_loc[1])], [int(self.robot_loc[0]), int(self.robot_loc[1])], (0,0,255), 1)
+                cv2.circle(self.img_bgr, [int(self.object_loc[0]), int(self.object_loc[1])], 5, (0,0,255), -1)
+                
+                cv2.line(self.img_bgr, [20,20], [20, int(20+100*1.4)], (0,0,0), 10) # Draws the line for the circle counter
+            elif self.state == "circle": # "circle" represents circling around the fire
+                # Turn on the spot for the first 5 iterations
+                if self.circle_counter > 7:
+                    self.circle_turn90 = False
+                print(self.circle_counter)
+                
+                # Run fire detection and P control
+                movement, self.object_loc = self.followFire(self.img_bgr, self.circle_turn90) 
+                self.circle_counter = self.circle_counter +1
+                print("second")
+                print(self.circle_counter)
 
-            movement, self.object_loc = self.basicFireDetection(self.img_bgr) # Run fire detection and P control
+                # Draws the line from the robot to the object
+                cv2.line(self.img_bgr, [int(self.object_loc[0]), int(self.object_loc[1])], [int(self.robot_loc[0]), int(self.robot_loc[1])], (255,0,0), 1)
+                cv2.circle(self.img_bgr, [int(self.object_loc[0]), int(self.object_loc[1])], 5, (255,0,0), -1)
 
-            # Draws the line from the robot to the object
-            cv2.line(self.img_bgr, [int(self.object_loc[0]), int(self.object_loc[1])], [int(self.robot_loc[0]), int(self.robot_loc[1])], (0,0,255), 1)
-            cv2.circle(self.img_bgr, [int(self.object_loc[0]), int(self.object_loc[1])], 5, (0,0,255), -1)
-            
-            cv2.line(self.img_bgr, [20,20], [20, int(20+100*1.4)], (0,0,0), 10) # Draws the line for the circle counter
+                # Draws the progress bar for the circle counter
+                cv2.line(self.img_bgr, [20,20], [20, int(20+100*1.4)], (0,0,0), 10)
+                cv2.line(self.img_bgr, [20,20], [20, int(20+self.circle_counter*1.4)], (255,255,255), 10)
 
-        elif self.state == "circle": # "circle" represents circling around the fire
-            
-            # Turn on the spot for the first 5 iterations
-            if self.circle_counter > 5:
-                self.circle_turn90 = False
-            
-            # Run fire detection and P control
-            movement, self.object_loc = self.followFire(self.img_bgr, self.circle_turn90) 
-            self.circle_counter += 1 
-            
-            # Draws the line from the robot to the object
-            cv2.line(self.img_bgr, [int(self.object_loc[0]), int(self.object_loc[1])], [int(self.robot_loc[0]), int(self.robot_loc[1])], (255,0,0), 1)
-            cv2.circle(self.img_bgr, [int(self.object_loc[0]), int(self.object_loc[1])], 5, (255,0,0), -1)
+                if self.circle_counter > 100: 
+                    # If the robot has circled for 100 iterations, face the fire and reset
+                    self.state = "search"
+                    print("why?")
+                    self.circle_counter = 0
+                    self.circle_turn90 = True
 
-            # Draws the progress bar for the circle counter
-            cv2.line(self.img_bgr, [20,20], [20, int(20+100*1.4)], (0,0,0), 10)
-            cv2.line(self.img_bgr, [20,20], [20, int(20+self.circle_counter*1.4)], (255,255,255), 10)
-
-            if self.circle_counter > 100: 
-                # If the robot has circled for 100 iterations, face the fire and reset
-                self.state = "search"
-                self.circle_counter = 0
-                self.circle_turn90 = True
-
-        # Extract linear and angular movement commands
-        if movement:
-            self.current_linear = movement[0]
-            self.current_angular = movement[1]
-        
+            # Extract linear and angular movement commands
+            if movement:
+                self.current_linear = movement[0]
+                self.current_angular = movement[1]
+        except:
+            pass    
         endtime = round((time.time() - start_time)*1000,2) # Stop the timer
 
         # Write info on the screen
@@ -144,7 +157,7 @@ class MRController:
             [dim - 1, dim - 1],
             [0, dim - 1]], dtype="float32")
         
-        print("Final contours:")
+        #print("Final contours:")
         # print(len(final_contour_list))
         # Go through all found contours
         for i in range(len(final_contour_list)):
@@ -187,13 +200,13 @@ class MRController:
 
             # If a location has been gathered
             if not location == None:
-                print("Location: " + location)
+                #print("Location: " + location)
                 cent, forw = self.tag_location(location, self.order(c_rez))
 
                 # cv2.circle(camera_feed, [int(cent[0]),int(cent[1])], 3, (0,0,255), 2)
                 # cv2.line(camera_feed, [int(cent[0]),int(cent[1])], [int(cent[0]+forw[0]), int(cent[1]+forw[1])], (0,0,255), 2)
-                print(cent)
-                print(forw)
+                #print(cent)
+                #print(forw)
                 return cent, forw
 
             else:
@@ -346,13 +359,13 @@ class MRController:
 
         # Return the tag's id, corrected based on orientation (where the white corner is)
         if cropped_img[85, 87] == corner_pixel:
-            return list([block_3, block_4, block_2, block_1]), "TR"
+            return list([block_3, block_4, block_2, block_1]), "BL"
         elif cropped_img[12, 87] == corner_pixel:
-            return list([block_4, block_2, block_1, block_3]), "TL"
+            return list([block_4, block_2, block_1, block_3]), "BR"
         elif cropped_img[12, 12] == corner_pixel:
-            return list([block_2, block_1, block_3, block_4]), "BL"
+            return list([block_2, block_1, block_3, block_4]), "TR"
         elif cropped_img[87, 12] == corner_pixel:
-            return list([block_1, block_3, block_4, block_2]), "BR"
+            return list([block_1, block_3, block_4, block_2]), "TL"
 
         return None, None
 
@@ -389,13 +402,15 @@ class MRController:
         if modOfVector1 == 0:
             modOfVector1 = 0.01
 
-        angle = dotProduct/modOfVector1 # calculate cos of the angle
+        #angle = dotProduct/modOfVector1 # calculate cos of the angle
 
-        angleInDegree = math.degrees(math.acos(angle)) # Convert to degrees
+        angle = math.atan2( a*d - b*c, a*c + b*d )
+
+        angleInDegree = math.degrees(angle) # Convert to degrees
 
         # invert angle when vector one is to the left of vector two (or maybe the other way)
-        if a < c:
-            angleInDegree = angleInDegree*-1
+        # if a < c:
+        #     angleInDegree = angleInDegree*-1
 
         return angleInDegree
 
@@ -431,12 +446,12 @@ class MRController:
         center = np.array((image.shape[0] / 2, image.shape[1] / 2))  # Calculates the center of the image
 
         # P controller for the linear velocity, based on the distance to the object
-        pidVel = PID(-0.01,0,0,setpoint = 100)
-        pidVel.output_limits = (-0.5, 0.5)
+        pidVel = PID(search_vel_pid[0],search_vel_pid[1],search_vel_pid[2],setpoint = 100)
+        pidVel.output_limits = (search_vel_lim[0],search_vel_lim[1])
 
         # P controller for the angular velocity, based on the angle between the robot and the object
-        pidAng = PID(0.02,0,0, setpoint = 0)
-        pidAng.output_limits = (-1,1)
+        pidAng = PID(search_ang_pid[0],search_ang_pid[1],search_ang_pid[2], setpoint = 0)
+        pidAng.output_limits = (search_ang_lim[0],search_ang_lim[1])
 
         # Main
         (h, l, s) = cv2.split(image) # Split the channels of the image and save the hue channel
@@ -472,27 +487,30 @@ class MRController:
 
         object_angle = self.find_angle(rob_obj, self.robot_forw) # Calculate angle to the object
 
-        turn = pidAng(object_angle) # Set turn value based on the x-coordinate of the nearest point
+        turn = pidAng(-object_angle) # Set turn value based on the x-coordinate of the nearest point
             
         if shortest_dist > threshold: # Check if the object is within the desired distance
-            targetSpeed = pidVel(shortest_dist) # Set speed value based on the distance to the nearest point
+            targetSpeed = -pidVel(shortest_dist) # Set speed value based on the distance to the nearest point
         elif abs(turn) < 0.05: # I the object is within acceptable distance and turn value is suitably small
             self.state = "circle" # Change the state of the robot to "circle"
 
-        return [[targetSpeed,0,0], [0,0,turn]], nearest_point[0] # Return the twist msg components 
+        return [[targetSpeed,0,0], [0,0,-turn]], nearest_point[0] # Return the twist msg components 
 
     # Circle around fire using P-controller 
     def followFire(self, camera_feed, turn_state):
+        
         # Create PID cotroller with a target value that is the same as the distance for the approach
-        followPID = PID(0.1,0,0, setpoint=100)
-        followPID.output_limits = (-0.5,0.5)
-
+        followPID = PID(circle_ang_pid[0],circle_ang_pid[1],circle_ang_pid[2], setpoint=100)
+        
+        followPID.output_limits = (circle_ang_lim[0],circle_ang_lim[1])
+        
         kernel = np.ones((9, 9), np.uint8) # Kernel used in noise reduciton
-
+        
         # If turn state is true then turn left (five iterations gives approximately 90 degrees)
         if turn_state:
-            return [[0,0,0], [0,0,1]], self.robot_loc
-
+            print("Turning!")
+            return [[-0.1,0,0], [0,0,-1]], self.robot_loc
+        
         img_blur = cv2.GaussianBlur(camera_feed, (3, 3), 0)
         image = cv2.cvtColor(img_blur, cv2.COLOR_BGR2HLS) # Convert image to HLS
         (h, l, s) = cv2.split(image) # Split channels and save hue channel 
@@ -515,17 +533,20 @@ class MRController:
             # If no object is present, set nearest pixel to the center pixel
             nearest_point = [[image.shape[0] / 2, image.shape[1] / 2]]
             # self.object_loc = nearest_point
-            shortest_dist = 500
+            shortest_dist = 100
         
+        print("Dist: " + str(shortest_dist))
         # If the distance is too large, return to search
-        if shortest_dist > 200:
-            self.state = "search"
-            self.circle_counter = 0
-            return [[0.1,0,0], [0,0,0]], nearest_point[0]
+        # if shortest_dist > 200:
+        #     print("Panic switch")
+        #     self.state = "search"
+        #     self.circle_turn90 = True
+        #     self.circle_counter = 0
+        #     return [[0.1,0,0], [0,0,0]], nearest_point[0]
 
         turn_pid = followPID(shortest_dist) # Calculate turn value based on distance to object
 
-        return [[0.1,0,0], [0,0,turn_pid]], nearest_point[0] # Return twist msg components
+        return [[0.2,0,0], [0,0,turn_pid]], nearest_point[0] # Return twist msg components
         
     # Runs every set interval and sends twist message
     def on_tmr(self):
@@ -545,7 +566,7 @@ class MRController:
             angular=Vector3(
                 x=float(self.current_angular[0]),
                 y=float(self.current_angular[1]),
-                z=float(self.current_angular[2]),
+                z=-float(self.current_angular[2]),
             )
         )
         # Publish the twist message 
