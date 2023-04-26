@@ -32,12 +32,13 @@ class MRController:
         self.node = rclpy.create_node("MRCont") # Create a node called MRCont
         self.pub_twist = self.node.create_publisher(Twist, 'cmd_vel', 10) # Create the twist publisher
 
-        self.sub_img = self.node.create_subscription(Image, '/camera/image_raw', self.image_callback, 10) # Create subscriber to the drone feed
-        self.sub_img
-        self.br = CvBridge() # Create bridge that converts ros image messages to opencv images
-        self.current_image = np.zeros(capture_shape) # Initiate the image variable
+        # self.sub_img = self.node.create_subscription(Image, '/camera/image_raw', self.image_callback, 10) # Create subscriber to the drone feed
+        # self.sub_img
+        # self.br = CvBridge() # Create bridge that converts ros image messages to opencv images
+        # self.current_image = np.zeros(capture_shape) # Initiate the image variable
+        self.cap = cv2.VideoCapture(0)
 
-        publish_period_sec = 0.2 # How often does the publisher publish 
+        publish_period_sec = 0.1 # How often does the publisher publish 
         self.tmr_twist = self.node.create_timer(publish_period_sec, self.on_tmr) # Creates timer that activates with a set interval
 
         self.move_dir = 'S'                 # The state of the robot, that decides how it is moving
@@ -58,11 +59,11 @@ class MRController:
     def image_callback(self, data):
         start_time = time.time() # Begins the timer
 
-        self.current_image = self.br.imgmsg_to_cv2(data) # Convert from ros2 image msg to opencv image
+        # self.current_image = self.br.imgmsg_to_cv2(data) # Convert from ros2 image msg to opencv image
 
-        self.img_bgr = cv2.cvtColor(self.current_image, cv2.COLOR_BGR2RGB) # Converts the image to bgr format
+        self.img_bgr = data #cv2.cvtColor(self.current_image, cv2.COLOR_BGR2RGB) # Converts the image to bgr format
 
-        self.img_bgr[int(capture_shape[0]/2-ar_size/2):int(capture_shape[0]/2+ar_size/2), int(capture_shape[1]/2-ar_size/2):int(capture_shape[1]/2+ar_size/2)] = ar_tag[:,:]
+        # self.img_bgr[int(capture_shape[0]/2-ar_size/2):int(capture_shape[0]/2+ar_size/2), int(capture_shape[1]/2-ar_size/2):int(capture_shape[1]/2+ar_size/2)] = ar_tag[:,:]
         
         # Reset the linear and angular commands
         self.current_linear = [0, 0, 0]
@@ -131,7 +132,7 @@ class MRController:
 
         
         # If there are no conours, end and try again
-        if final_contour_list == 0:
+        if len(final_contour_list) == 0:
             return [0,0], [0,0]
         
         # Creates an empty list
@@ -144,6 +145,7 @@ class MRController:
             [0, dim - 1]], dtype="float32")
         
         print("Final contours:")
+        # print(len(final_contour_list))
         # Go through all found contours
         for i in range(len(final_contour_list)):
             cv2.drawContours(self.img_bgr, [final_contour_list[i]], -1, (255, 0, 0), 2)
@@ -190,12 +192,13 @@ class MRController:
 
                 # cv2.circle(camera_feed, [int(cent[0]),int(cent[1])], 3, (0,0,255), 2)
                 # cv2.line(camera_feed, [int(cent[0]),int(cent[1])], [int(cent[0]+forw[0]), int(cent[1]+forw[1])], (0,0,255), 2)
-                # print(cent)
-                # print(forw)
+                print(cent)
+                print(forw)
                 return cent, forw
 
             else:
                 print("Location: NONE")
+
 
     def contour_generator(self, frame):
         # Create b/w of the video feed
@@ -251,7 +254,7 @@ class MRController:
             # Only keep those contours with an area of less than 2500
             for element in new_contour_list:
                 if cv2.contourArea(element) < 3000 and cv2.contourArea(element) > 100:
-                    print("Area: " + str(cv2.contourArea(element)))
+                    # print("Area: " + str(cv2.contourArea(element)))
                     final_contour_list.append(element)
 
             return final_contour_list
@@ -343,13 +346,13 @@ class MRController:
 
         # Return the tag's id, corrected based on orientation (where the white corner is)
         if cropped_img[85, 87] == corner_pixel:
-            return list([block_3, block_4, block_2, block_1]), "BR"
+            return list([block_3, block_4, block_2, block_1]), "TR"
         elif cropped_img[12, 87] == corner_pixel:
-            return list([block_4, block_2, block_1, block_3]), "TR"
+            return list([block_4, block_2, block_1, block_3]), "TL"
         elif cropped_img[12, 12] == corner_pixel:
-            return list([block_2, block_1, block_3, block_4]), "TL"
+            return list([block_2, block_1, block_3, block_4]), "BL"
         elif cropped_img[87, 12] == corner_pixel:
-            return list([block_1, block_3, block_4, block_2]), "BL"
+            return list([block_1, block_3, block_4, block_2]), "BR"
 
         return None, None
 
@@ -418,8 +421,11 @@ class MRController:
     # Fire detection and proportional control approach
     def basicFireDetection(self, camera_feed):
         # Setup
-        image = cv2.cvtColor(camera_feed, cv2.COLOR_BGR2HLS) # Convert image to HLS
-        kernel = np.ones((5, 5), np.uint8) # Used in noise reduction
+        img_blur = cv2.GaussianBlur(camera_feed, (3, 3), 0)
+        image = cv2.cvtColor(img_blur, cv2.COLOR_BGR2HLS) # Convert image to HLS
+        
+        kernel = np.ones((9, 9), np.uint8) # Used in noise reduction
+        
         threshold = 100 # Change this depending on what you need it as
         nearest_point = [0,0] # Variable for storing the neares object pixel
         center = np.array((image.shape[0] / 2, image.shape[1] / 2))  # Calculates the center of the image
@@ -434,8 +440,10 @@ class MRController:
 
         # Main
         (h, l, s) = cv2.split(image) # Split the channels of the image and save the hue channel
-        image = cv2.inRange(h, 10, 20) # threshold the image to find the fire
+        image = cv2.inRange(h, 85, 95) # threshold the image to find the fire
         image = cv2.morphologyEx(image, cv2.MORPH_OPEN, kernel) # Noise reduction (Remove this later perhaps)
+
+        cv2.imshow("something",image)
 
         shortest_dist = 1000000 # arbitrarily high starting value for shortest distance to object
         nonzero = cv2.findNonZero(image) # Find locations of all non-zero pixels in image
@@ -443,10 +451,10 @@ class MRController:
         nearest_point = [0,0]
         # If there is no object it gets angry, so I did a try/except to handle it
         try:
-            distances = np.sqrt((nonzero[:,:,0] - center[1]) ** 2 + (nonzero[:,:,1] - center[0]) ** 2) # Measure distances to all nonzero entries
+            distances = np.sqrt((nonzero[:,:,0] - self.robot_loc[0]) ** 2 + (nonzero[:,:,1] - self.robot_loc[1]) ** 2) # Measure distances to all nonzero entries
             nearest_index = np.argmin(distances) # Find the index of the closest pixel
             nearest_point = nonzero[nearest_index] # Get coordinated of nearest pixel
-            shortest_dist = np.sqrt((nearest_point[0][0] - center[1]) ** 2 + (nearest_point[0][1] - center[0]) ** 2) # Calculate shortest distance... again
+            shortest_dist = np.sqrt((nearest_point[0][0] - self.robot_loc[0]) ** 2 + (nearest_point[0][1] - self.robot_loc[1]) ** 2) # Calculate shortest distance... again
         except:
             # If no object is present, set nearest pixel to the center pixel
             nearest_point = [[image.shape[0] / 2, image.shape[1] / 2]]
@@ -479,15 +487,16 @@ class MRController:
         followPID = PID(0.1,0,0, setpoint=100)
         followPID.output_limits = (-0.5,0.5)
 
-        kernel = np.ones((5, 5), np.uint8) # Kernel used in noise reduciton
+        kernel = np.ones((9, 9), np.uint8) # Kernel used in noise reduciton
 
         # If turn state is true then turn left (five iterations gives approximately 90 degrees)
         if turn_state:
             return [[0,0,0], [0,0,1]], self.robot_loc
 
-        image = cv2.cvtColor(camera_feed, cv2.COLOR_BGR2HLS) # Convert image to HLS
+        img_blur = cv2.GaussianBlur(camera_feed, (3, 3), 0)
+        image = cv2.cvtColor(img_blur, cv2.COLOR_BGR2HLS) # Convert image to HLS
         (h, l, s) = cv2.split(image) # Split channels and save hue channel 
-        image = cv2.inRange(h, 10, 20) # Threshhold image for objects
+        image = cv2.inRange(h, 85, 95) # Threshhold image for objects
         image = cv2.morphologyEx(image, cv2.MORPH_OPEN, kernel)         # Noise reduction (Remove this later perhaps)
 
         # shortest_path = 1000000 # Arbitrarily high shortest path value
@@ -511,6 +520,7 @@ class MRController:
         # If the distance is too large, return to search
         if shortest_dist > 200:
             self.state = "search"
+            self.circle_counter = 0
             return [[0.1,0,0], [0,0,0]], nearest_point[0]
 
         turn_pid = followPID(shortest_dist) # Calculate turn value based on distance to object
@@ -519,6 +529,12 @@ class MRController:
         
     # Runs every set interval and sends twist message
     def on_tmr(self):
+        success, frame = self.cap.read()
+
+        if success:
+            self.image_callback(frame)
+
+
         # Create twist message from the latest linear and angular
         twist = Twist(
             linear=Vector3(

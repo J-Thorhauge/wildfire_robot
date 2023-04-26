@@ -27,7 +27,7 @@ p1 = np.array([
 # Decode the tag ID and 4 digit binary and orientation
 def id_decode(image):
     # create binary from the input image
-    ret, img_bw = cv2.threshold(image, 100, 255, cv2.THRESH_BINARY)
+    ret, img_bw = cv2.threshold(image, 180, 255, cv2.THRESH_BINARY)
 
     bw_copy = img_bw
     bw_copy = cv2.cvtColor(bw_copy, cv2.COLOR_GRAY2BGR)
@@ -129,7 +129,8 @@ def contour_generator(frame):
     # Blur image for cleaner edges
     test_blur = cv2.GaussianBlur(test_img1, (5, 5), 0)
     # Edge detection
-    edge = cv2.Canny(test_blur, 75, 200)
+    edge = cv2.Canny(test_blur, 75, 200) #75,200
+    cv2.imshow("edges", edge)
     # Make copy of edge image
     edge1 = copy.copy(edge)
 
@@ -247,6 +248,7 @@ def image_process(frame, p1):
     morshu_list = list()
 
     # print("Final contours:")
+    print(len(final_contour_list))
     # Go through all found contours
     for i in range(len(final_contour_list)):
         # Draw all final contours and show the image
@@ -294,7 +296,7 @@ def image_process(frame, p1):
             print("Location: " + location)
             cent, forw = tag_location(location, order(c_rez))
 
-            cv2.circle(frame, [int(cent[0]),int(cent[1])], 3, (0,0,255), 2)
+            cv2.circle(frame, [int(cent[0]),int(cent[1])], 2, (0,0,255), 2)
             cv2.line(frame, [int(cent[0]),int(cent[1])], [int(cent[0]+forw[0]), int(cent[1]+forw[1])], (0,0,255), 2)
             
 
