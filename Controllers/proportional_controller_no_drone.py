@@ -112,7 +112,7 @@ class MRController:
                 cv2.line(self.img_bgr, [20,20], [20, int(20+100*1.4)], (0,0,0), 10)
                 cv2.line(self.img_bgr, [20,20], [20, int(20+self.circle_counter*1.4)], (255,255,255), 10)
 
-                if self.circle_counter > 100: 
+                if self.circle_counter > 1000: 
                     # If the robot has circled for 100 iterations, face the fire and reset
                     self.state = "search"
                     print("why?")
@@ -414,10 +414,19 @@ class MRController:
 
         return angleInDegree
 
-    def tangent_angle(self, object):
+    def tangent_angle(self, object, dist, target):
         rob_obj = object - self.robot_loc
-        angle = self.find_angle(self.robot_forw, rob_obj)/2
-        return angle
+        angle = -self.find_angle(self.robot_forw, rob_obj) +90
+
+        err = target - dist
+
+        heading = -(err + angle)
+
+        print("Angle:   " + str(angle))
+        print("Err:     " + str(err))
+        print("heading: " + str(heading))
+
+        return heading
 
     # Honestly not sure what this does, I'm not using it
     def get_param(self, name, expected_type, default):
@@ -549,9 +558,9 @@ class MRController:
         #     self.circle_counter = 0
         #     return [[0.1,0,0], [0,0,0]], nearest_point[0]
 
-        target_angle = target_angle(nearest_point[0])
+        target_angle = self.tangent_angle(nearest_point[0], shortest_dist, 100)
 
-        turn_pid = followPID(90-target_angle) # Calculate turn value based on distance to object
+        turn_pid = followPID(target_angle) # Calculate turn value based on distance to object
 
         return [[0.2,0,0], [0,0,turn_pid]], nearest_point[0] # Return twist msg components
         
