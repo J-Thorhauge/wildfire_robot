@@ -534,8 +534,7 @@ class MRController:
         )
         # Publish the twist message 
         self.pub_twist.publish(twist)
-        
-
+    
     # Spin the node
     def spin(self):
         print("spin")

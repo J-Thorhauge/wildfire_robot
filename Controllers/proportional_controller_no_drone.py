@@ -414,6 +414,11 @@ class MRController:
 
         return angleInDegree
 
+    def tangent_angle(self, object):
+        rob_obj = object - self.robot_loc
+        angle = self.find_angle(self.robot_forw, rob_obj)/2
+        return angle
+
     # Honestly not sure what this does, I'm not using it
     def get_param(self, name, expected_type, default):
         print("get_params")
@@ -500,7 +505,7 @@ class MRController:
     def followFire(self, camera_feed, turn_state):
         
         # Create PID cotroller with a target value that is the same as the distance for the approach
-        followPID = PID(circle_ang_pid[0],circle_ang_pid[1],circle_ang_pid[2], setpoint=100)
+        followPID = PID(circle_ang_pid[0],circle_ang_pid[1],circle_ang_pid[2], setpoint=0)
         
         followPID.output_limits = (circle_ang_lim[0],circle_ang_lim[1])
         
@@ -544,7 +549,9 @@ class MRController:
         #     self.circle_counter = 0
         #     return [[0.1,0,0], [0,0,0]], nearest_point[0]
 
-        turn_pid = followPID(shortest_dist) # Calculate turn value based on distance to object
+        target_angle = target_angle(nearest_point[0])
+
+        turn_pid = followPID(90-target_angle) # Calculate turn value based on distance to object
 
         return [[0.2,0,0], [0,0,turn_pid]], nearest_point[0] # Return twist msg components
         
