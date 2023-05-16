@@ -37,7 +37,7 @@ thresh_bag = [85, 98]
 thresh_sprite = [54,70]
 thresh_poster = [150,180]
 thresh_red = [170,180]
-thresh_purple = [130,150]
+thresh_purple = [120,160]
 thresh_green = [70,78]
 thresh = [thresh_trash, thresh_bag, thresh_sprite, thresh_poster, thresh_green, thresh_purple, thresh_red]
 
@@ -76,12 +76,32 @@ class MRController:
         self.robot_forw = [0,-10]
         self.object_loc = [capture_shape[1]/2,0] # Initiating object location
         self.drone_diff = [0,0,0]
-        self.current_distance = 0 
+        self.current_distance = 0
+        self.dist_conv = 1
 
         self.detect_counter = 0
         self.total_counter = 0
 
         self.data = open("data.txt", "w")
+        all_data = "Total, Detected, Lin. vel., Ang.vel., Roll, Pitch, Fire dist., Drone offset x, Drone offset y, Conversion\n"
+        self.data.write(all_data)
+
+        # P controller for the linear velocity, based on the distance to the object
+        self.pidVel = PID(search_vel_pid[0],search_vel_pid[1],search_vel_pid[2],setpoint = 110)
+        self.pidVel.output_limits = (search_vel_lim[0],search_vel_lim[1])
+
+        # P controller for the angular velocity, based on the angle between the robot and the object
+        self.pidAng = PID(search_ang_pid[0],search_ang_pid[1],search_ang_pid[2], setpoint = 0)
+        self.pidAng.output_limits = (search_ang_lim[0],search_ang_lim[1])
+
+        # Create PID cotroller with a target value that is the same as the distance for the approach
+        self.followPID = PID(circle_ang_pid[0],circle_ang_pid[1],circle_ang_pid[2], setpoint=0)
+        self.followPID.output_limits = (circle_ang_lim[0],circle_ang_lim[1])
+
+        self.rollPID = PID(-1,-0.001,0.001, setpoint=0)
+        self.rollPID.output_limits = (-1,1)
+        self.pitchPID = PID(-1,-0.001,0.001, setpoint=0)
+        self.pitchPID.output_limits = (-1,1)
 
     # This function runs every time a new image is published to /camera/image_raw
     def image_callback(self, data):
@@ -135,7 +155,7 @@ class MRController:
                 cv2.line(self.img_bgr, [20,20], [20, int(20+100*1.4)], (0,0,0), 10)
                 cv2.line(self.img_bgr, [20,20], [20, int(20+self.circle_counter*1.4)], (255,255,255), 10)
 
-                if self.circle_counter > 10000: 
+                if self.circle_counter > 1000000: 
                     # If the robot has circled for 100 iterations, face the fire and reset
                     self.state = "search"
                     # print("why?")
@@ -157,6 +177,7 @@ class MRController:
         cv2.putText(self.img_bgr, "turn: " + str(round(self.current_angular[2],2)), (40,160), cv2.FONT_HERSHEY_SIMPLEX, 1, (255,255,255), 2, cv2.LINE_AA)
 
         cv2.line(self.img_bgr, [int(self.robot_loc[0]), int(self.robot_loc[1])], [int(self.robot_loc[0]+self.robot_forw[0]*2), int(self.robot_loc[1]+self.robot_forw[1]*2)], (255,0,0), 1)
+        cv2.circle(self.img_bgr, [int(960/2),int(720/2)], 5, (0,0,255), -1)
 
         # Show image
         cv2.imshow("camera", self.img_bgr)
@@ -224,7 +245,7 @@ class MRController:
             # If a location has been gathered
             if not location == None:
                 #print("Location: " + location)
-                cent, forw = self.tag_location(location, self.order(c_rez))
+                cent, forw, self.dist_conv = self.tag_location(location, self.order(c_rez))
 
                 # cv2.circle(camera_feed, [int(cent[0]),int(cent[1])], 3, (0,0,255), 2)
                 # cv2.line(camera_feed, [int(cent[0]),int(cent[1])], [int(cent[0]+forw[0]), int(cent[1]+forw[1])], (0,0,255), 2)
@@ -410,7 +431,10 @@ class MRController:
         
         center_loc = [(corners[0][0]+corners[1][0]+corners[2][0]+corners[3][0])/4, (corners[0][1]+corners[1][1]+corners[2][1]+corners[3][1])/4]
         forward_vector = [front_loc[0]-center_loc[0], front_loc[1]-center_loc[1]]
-        return center_loc, forward_vector
+
+        side_length = math.sqrt(pow(corners[0][0]-corners[1][0],2) + pow(corners[0][1]-corners[1][1],2))
+        convertion = 15/side_length
+        return center_loc, forward_vector, convertion
     #####  AR tag detection functions END  #####
 
     # Calculate angle between two vectors
@@ -482,17 +506,10 @@ class MRController:
         
         kernel = np.ones((19, 19), np.uint8) # Used in noise reduction
         
-        threshold = 100 # Change this depending on what you need it as
+        threshold = 110 # Change this depending on what you need it as
         nearest_point = [0,0] # Variable for storing the neares object pixel
         center = np.array((image.shape[0] / 2, image.shape[1] / 2))  # Calculates the center of the image
 
-        # P controller for the linear velocity, based on the distance to the object
-        pidVel = PID(search_vel_pid[0],search_vel_pid[1],search_vel_pid[2],setpoint = 100)
-        pidVel.output_limits = (search_vel_lim[0],search_vel_lim[1])
-
-        # P controller for the angular velocity, based on the angle between the robot and the object
-        pidAng = PID(search_ang_pid[0],search_ang_pid[1],search_ang_pid[2], setpoint = 0)
-        pidAng.output_limits = (search_ang_lim[0],search_ang_lim[1])
 
         # Main
         (h, l, s) = cv2.split(image) # Split the channels of the image and save the hue channel
@@ -514,7 +531,7 @@ class MRController:
         except:
             # If no object is present, set nearest pixel to the center pixel
             nearest_point = [[image.shape[0] / 2, image.shape[1] / 2]]
-            shortest_dist = 0
+            shortest_dist = 1000000
         
         self.current_distance = shortest_dist # Save to variable used for data logging
 
@@ -530,35 +547,42 @@ class MRController:
 
         object_angle = self.find_angle(rob_obj, self.robot_forw) # Calculate angle to the object
 
+        if abs(object_angle) > 20:
+            self.search_state = "turn"
+
         # If the remaining angel is more than three degees and turn mode is active, turn until the angle is less, then change to drive mode
-        if abs(object_angle) != 0 and abs(object_angle) > 3 and self.search_state == "turn":
-            turn = pidAng(-object_angle) # Set turn value based on the angle to the object
+        if self.search_state == "turn" and abs(object_angle) > 3:# and not(abs(object_angle) == 0): # abs(object_angle) != 0 and abs(object_angle) > 3 and 
+            turn = self.pidAng(-object_angle) # Set turn value based on the angle to the object
+            print("###################Turning####################")
+
         else:
+            print("Changing to drive")
             self.search_state = "drive"
         
         # Drive forward while in drive mode and the distance to object is less than the threshold, then change to circling mode
-        if shortest_dist > threshold and self.search_state == "drive":
-            targetSpeed = -pidVel(shortest_dist) # Set speed value based on the distance to the nearest point
-        elif shortest_dist <= threshold and self.search_state == "drive":
-            self.search_state = "turn"
-            self.state = "circle" # Change the state of the robot to "circle"
+        if self.search_state == "drive":
+            if shortest_dist > threshold:
+                targetSpeed = -self.pidVel(shortest_dist) # Set speed value based on the distance to the nearest point
+            else:
+                print("Search done!")
+                self.search_state = "turn"
+                self.state = "circle" # Change the state of the robot to "circle"
 
+        # print(self.search_state + " Angle: " + str(object_angle) + " dist: " + str(shortest_dist))
+        # print("Ang: " + str(turn) + " Lin: " + str(targetSpeed))
 
         # if shortest_dist > threshold: # Check if the object is within the desired distance
         #     targetSpeed = -pidVel(shortest_dist) # Set speed value based on the distance to the nearest point
         # elif abs(turn) < 0.05: # I the object is within acceptable distance and turn value is suitably small
         #     self.state = "circle" # Change the state of the robot to "circle"
 
-        return [[targetSpeed+0.02,0,0], [0,0,turn]], nearest_point[0] # Return the twist msg components 
+        return [[targetSpeed,0,0], [0,0,turn]], nearest_point[0] # Return the twist msg components 
 
     # Circle around fire using P-controller 
     def followFire(self, camera_feed, turn_state):
         
-        # Create PID cotroller with a target value that is the same as the distance for the approach
-        followPID = PID(circle_ang_pid[0],circle_ang_pid[1],circle_ang_pid[2], setpoint=0)
         
-        followPID.output_limits = (circle_ang_lim[0],circle_ang_lim[1])
-        
+
         kernel = np.ones((19,19), np.uint8) # Kernel used in noise reduciton
         
         # If turn state is true then turn left (five iterations gives approximately 90 degrees)
@@ -588,7 +612,7 @@ class MRController:
             # If no object is present, set nearest pixel to the center pixel
             nearest_point = [[image.shape[0] / 2, image.shape[1] / 2]]
             # self.object_loc = nearest_point
-            shortest_dist = 100
+            shortest_dist = 110
         
         # If no AR-tag has been detected, set the shortest distance to 0
         if self.robot_loc != [0,0]:
@@ -605,9 +629,9 @@ class MRController:
         #     self.circle_counter = 0
         #     return [[0.1,0,0], [0,0,0]], nearest_point[0]
 
-        target_angle = self.tangent_angle(nearest_point[0], shortest_dist, 100) # Calculate desired tangent angle value based on distance to object
+        target_angle = self.tangent_angle(nearest_point[0], shortest_dist, 110) # Calculate desired tangent angle value based on distance to object
 
-        turn_pid = followPID(target_angle) # Calculate turning value based on the angle to the desired tangent angle
+        turn_pid = self.followPID(target_angle) # Calculate turning value based on the angle to the desired tangent angle
 
         return [[0.1,0,0], [0,0,turn_pid]], nearest_point[0] # Return twist msg components
         
@@ -623,7 +647,12 @@ class MRController:
         # The z (yaw) value is set to 0, as it causes too much disturbance
         diffz = 0 #self.find_angle([0,-1],self.robot_forw)/180
 
-        return [diffx, -diffy, diffz]
+        PIDx = self.rollPID(diffx)
+        PIDy = self.pitchPID(diffy)
+
+        # print("Diffx: " + str(diffx) + " PID: "+ str(PIDx))
+
+        return [PIDx, -PIDy, diffz]
 
     # Runs every set interval and sends twist message
     def on_tmr(self):
@@ -631,13 +660,16 @@ class MRController:
 
         # if success:
         #     self.image_callback(frame)
-        all_data = str(self.total_counter)+", "+str(self.detect_counter)+", "+str(self.current_linear[0])+", "+str(self.current_angular[2])+", "+str(self.drone_diff[0])+", "+str(self.drone_diff[1])+", "+str(self.current_distance)+"\n"
+
+        # Write data collected data to a textfile
+        all_data = str(self.total_counter)+", "+str(self.detect_counter)+", "+str(self.current_linear[0])+", "+str(self.current_angular[2])+", "+str(self.drone_diff[0])+", "+str(self.drone_diff[1])+", "+str(self.current_distance)+", "+str(self.robot_loc[0]-960/2)+", "+str(self.robot_loc[1]-720/2)+", "+str(self.dist_conv)+"\n"
         self.data.write(all_data)
+
         # print("AR-tag detection: ")
         # print(self.total_counter)
         # print(self.detect_counter)
 
-        # Create twist message from the latest linear and angular
+        # Create twist message from the latest linear and angular velocities
         vel_twist = Twist(
             linear=Vector3(
                 x=float(self.current_linear[0]),
@@ -650,6 +682,7 @@ class MRController:
                 z=float(self.current_angular[2]),
             )
         )
+        # Create twist message with drone RPY
         print("Drone: " + str(self.drone_diff))
         drone_twist = Twist(
             linear=Vector3(
@@ -663,7 +696,7 @@ class MRController:
                 z=float(self.drone_diff[2]),
             )
         )
-        # Publish the twist message 
+        # Publish the twist messages
         self.pub_twist.publish(vel_twist)
         self.pub_drone.publish(drone_twist)
         
