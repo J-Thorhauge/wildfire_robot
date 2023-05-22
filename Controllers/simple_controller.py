@@ -7,7 +7,6 @@ from rclpy.qos import qos_profile_sensor_data
 from cv_bridge import CvBridge # Package to convert between ROS and OpenCV Images
 import cv2 # OpenCV library
 import numpy as np
-#sensor_msgs/msg/Image.msg
 
 import time
 
