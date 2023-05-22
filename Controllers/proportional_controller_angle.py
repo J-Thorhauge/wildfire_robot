@@ -437,6 +437,8 @@ class MRController:
         image = cv2.inRange(h, 10, 20) # threshold the image to find the fire
         image = cv2.morphologyEx(image, cv2.MORPH_OPEN, kernel) # Noise reduction (Remove this later perhaps)
 
+        cv2.imshow("Fire!",image)
+
         shortest_dist = 1000000 # arbitrarily high starting value for shortest distance to object
         nonzero = cv2.findNonZero(image) # Find locations of all non-zero pixels in image
 
@@ -489,6 +491,8 @@ class MRController:
         (h, l, s) = cv2.split(image) # Split channels and save hue channel 
         image = cv2.inRange(h, 10, 20) # Threshhold image for objects
         image = cv2.morphologyEx(image, cv2.MORPH_OPEN, kernel)         # Noise reduction (Remove this later perhaps)
+
+        cv2.imshow("Fire!",image)
 
         # shortest_path = 1000000 # Arbitrarily high shortest path value
         center = self.robot_loc

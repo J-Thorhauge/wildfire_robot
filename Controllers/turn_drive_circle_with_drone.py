@@ -1,5 +1,6 @@
 import rclpy # Python ros2 interface
 
+from std_msgs.msg import String
 from geometry_msgs.msg import Twist, Vector3 # Twist message type import
 from sensor_msgs.msg import Image
 from rclpy.qos import qos_profile_sensor_data
@@ -58,6 +59,8 @@ class MRController:
         # self.cap.set(cv2.CAP_PROP_FRAME_WIDTH,640)
         # self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT,480)
 
+        self.sub_img = self.node.create_subscription(String, 'RC', self.RC_callback, 10)
+
         publish_period_sec = 0.1 # How often does the publisher publish 
         self.tmr_twist = self.node.create_timer(publish_period_sec, self.on_tmr) # Creates timer that activates with a set interval
 
@@ -81,6 +84,8 @@ class MRController:
 
         self.detect_counter = 0
         self.total_counter = 0
+
+        self.manual = False
 
         self.data = open("data.txt", "w")
         all_data = "Total, Detected, Lin. vel., Ang.vel., Roll, Pitch, Fire dist., Drone offset x, Drone offset y, Conversion\n"
@@ -654,12 +659,43 @@ class MRController:
 
         return [PIDx, -PIDy, diffz]
 
+    def RC_callback(self, data):
+
+        cmd = data.data
+        print("I SAW IT!")
+        print(cmd)
+
+        if cmd == "RCON":
+            vel_twist = Twist(
+                linear=Vector3(
+                    x=float(0),
+                    y=float(0),
+                    z=float(0),
+                ),
+                angular=Vector3(
+                    x=float(0),
+                    y=float(0),
+                    z=float(0),
+                )
+            )
+            # Publish the twist messages
+            self.pub_twist.publish(vel_twist)
+            self.manual = True
+
+        elif cmd == "RCOFF":
+            self.state = "search"
+            self.circle_counter = 0
+            self.circle_turn90 = True
+            self.manual = False
+
     # Runs every set interval and sends twist message
     def on_tmr(self):
         # success, frame = self.cap.read()
 
         # if success:
         #     self.image_callback(frame)
+
+
 
         # Write data collected data to a textfile
         all_data = str(self.total_counter)+", "+str(self.detect_counter)+", "+str(self.current_linear[0])+", "+str(self.current_angular[2])+", "+str(self.drone_diff[0])+", "+str(self.drone_diff[1])+", "+str(self.current_distance)+", "+str(self.robot_loc[0]-960/2)+", "+str(self.robot_loc[1]-720/2)+", "+str(self.dist_conv)+"\n"
@@ -697,7 +733,9 @@ class MRController:
             )
         )
         # Publish the twist messages
-        self.pub_twist.publish(vel_twist)
+        if self.manual == False:
+            self.pub_twist.publish(vel_twist)
+            
         self.pub_drone.publish(drone_twist)
         
     # Spin the node
